@@ -1,8 +1,9 @@
 import os
 import uuid
+from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import yt_dlp
@@ -25,8 +26,12 @@ class ConvertRequest(BaseModel):
 
 def remover_arquivo(caminho: str):
     if os.path.exists(caminho):
-        os.remove(caminho)
+        try:
+            os.remove(caminho)
+        except Exception:
+            pass
 
+# 1º: Rota da conversão (tem que vir antes do StaticFiles)
 @app.post("/converter-mp3")
 async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks):
     qualidade = dados.qualidade if dados.qualidade in ["128", "192", "320"] else "192"
@@ -38,6 +43,7 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
         'outtmpl': caminho_saida,
         'quiet': True,
         'no_warnings': True,
+        'noplaylist': True,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -48,19 +54,33 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
     try:
         with yt_dlp.YoutubeDL(opcoes_ytdlp) as ydl:
             info = ydl.extract_info(dados.url, download=True)
-            titulo = info.get("title", "audio")
-            titulo_limpo = "".join(c for c in titulo if c.isalnum() or c in " -_").strip()
+            titulo = info.get("title", "audio_th_download")
+            titulo_limpo = "".join(c for c in titulo if c.isalnum() or c in " -_()").strip()
+            if not titulo_limpo:
+                titulo_limpo = "audio_convertido"
 
         arquivo_final = f"downloads_temp/{id_unico}.mp3"
+        
+        if not os.path.exists(arquivo_final):
+            raise Exception("Falha ao gerar o arquivo MP3.")
+
+        with open(arquivo_final, "rb") as f:
+            conteudo_mp3 = f.read()
+
         background_tasks.add_task(remover_arquivo, arquivo_final)
 
-        return FileResponse(
-            path=arquivo_final,
+        nome_arquivo = f"{titulo_limpo} ({qualidade}kbps).mp3"
+        nome_codificado = quote(nome_arquivo)
+
+        return Response(
+            content=conteudo_mp3,
             media_type="audio/mpeg",
-            filename=f"{titulo_limpo} ({qualidade}kbps).mp3"
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{nome_codificado}"
+            }
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Entrega seu site completo (index.html, conversor, contato)
+# 2º: Carrega index.html e todas as suas outras páginas automaticamente
 app.mount("/", StaticFiles(directory=".", html=True), name="site")
