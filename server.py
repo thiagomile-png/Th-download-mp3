@@ -1,3 +1,4 @@
+
 import os
 import shutil
 import uuid
@@ -21,6 +22,9 @@ app.add_middleware(
 
 TEMP_DIR = "/tmp/downloads_temp"
 os.makedirs(TEMP_DIR, exist_ok=True)
+
+# Limite máximo de duração em segundos (7200s = 2 horas) para proteger a RAM do Render
+DURACAO_MAXIMA_SEGUNDOS = 7200
 
 tarefas = {}
 
@@ -57,6 +61,12 @@ async def obter_info_video(dados: InfoRequest):
         'no_warnings': True,
         'noplaylist': True,
         'skip_download': True,
+        'socket_timeout': 20,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['web', 'tv', 'mweb'],
+            }
+        },
     }
 
     cookie_path = obter_cookiefile_gravavel()
@@ -100,7 +110,16 @@ def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
         'outtmpl': caminho_saida,
         'noplaylist': True,
         'buffersize': 1024 * 16,
+        'http_chunk_size': 10485760,  # Limita blocos a 10MB (evita bloqueio em vídeos longos)
+        'retries': 5,
+        'fragment_retries': 5,
+        'socket_timeout': 30,
         'quiet': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['web', 'tv', 'mweb'],
+            }
+        },
         'progress_hooks': [hook_progresso],
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -114,10 +133,23 @@ def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
         opcoes_ytdlp['cookiefile'] = cookie_path
 
     try:
-        tarefas[id_unico]["status"] = "Conectando ao YouTube..."
-        tarefas[id_unico]["progresso"] = 5
+        tarefas[id_unico]["status"] = "Verificando vídeo no YouTube..."
+        tarefas[id_unico]["progresso"] = 4
 
         with yt_dlp.YoutubeDL(opcoes_ytdlp) as ydl:
+            # Verifica primeiro os metadados e duração antes de baixar
+            info_previa = ydl.extract_info(url, download=False)
+            duracao = info_previa.get("duration") or 0
+
+            if duracao > DURACAO_MAXIMA_SEGUNDOS:
+                raise Exception("O vídeo ultrapassa o limite máximo de 2 horas permitido pelo servidor.")
+
+            if info_previa.get("is_live"):
+                raise Exception("Transmissões ao vivo em andamento não podem ser convertidas.")
+
+            tarefas[id_unico]["status"] = "Iniciando download do áudio..."
+            tarefas[id_unico]["progresso"] = 5
+
             info = ydl.extract_info(url, download=True)
             titulo = info.get("title", "audio")
             titulo_limpo = "".join(c for c in titulo if c.isalnum() or c in " -_").strip() or "audio"
