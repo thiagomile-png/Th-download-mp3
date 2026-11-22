@@ -3,18 +3,18 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Instala FFmpeg, unzip e curl para instalar o Deno
+# Copia o binário oficial do Deno diretamente (sem usar curl nem URLs)
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
+# Instala apenas o FFmpeg
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg curl unzip ca-certificates && \
+    apt-get install -y --no-install-recommends ffmpeg && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Instala o Deno (runtime JS oficial recomendado pelo yt-dlp para YouTube)
-RUN curl -fsSL https://deno.land | DENO_INSTALL=/usr/local sh
-
 WORKDIR /app
 
-# Instala as dependências Python e o yt-dlp mais recente com extras
+# Instala as dependências Python e o yt-dlp mais recente com suporte JS
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir -U "yt-dlp[default]"
