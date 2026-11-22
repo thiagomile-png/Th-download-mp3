@@ -1,4 +1,3 @@
-
 import os
 import shutil
 import uuid
@@ -62,11 +61,6 @@ async def obter_info_video(dados: InfoRequest):
         'noplaylist': True,
         'skip_download': True,
         'socket_timeout': 20,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['web', 'tv', 'mweb'],
-            }
-        },
     }
 
     cookie_path = obter_cookiefile_gravavel()
@@ -115,11 +109,6 @@ def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
         'fragment_retries': 5,
         'socket_timeout': 30,
         'quiet': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['web', 'tv', 'mweb'],
-            }
-        },
         'progress_hooks': [hook_progresso],
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -137,7 +126,6 @@ def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
         tarefas[id_unico]["progresso"] = 4
 
         with yt_dlp.YoutubeDL(opcoes_ytdlp) as ydl:
-            # Verifica primeiro os metadados e duração antes de baixar
             info_previa = ydl.extract_info(url, download=False)
             duracao = info_previa.get("duration") or 0
 
