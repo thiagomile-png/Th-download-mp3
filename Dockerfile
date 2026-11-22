@@ -1,24 +1,28 @@
 FROM python:3.11-slim
 
-# Evita geração de arquivos .pyc e ativa logs em tempo real no painel do Render
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Instala o FFmpeg e o Node.js (necessário para o yt-dlp decifrar links do YouTube)
+# Instala FFmpeg, Node.js e Git
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg nodejs && \
+    apt-get install -y --no-install-recommends ffmpeg nodejs npm git ca-certificates && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Instala as dependências e força a atualização do yt-dlp para a versão mais recente
+# Instala o provedor automático de PO Token (Node.js) para liberar formatos no YouTube
+RUN git clone --single-branch --branch 1.2.2 https://github.com /opt/bgutil-pot && \
+    cd /opt/bgutil-pot/server && \
+    npm install && \
+    npx tsc
+
+# Instala as dependências Python, o yt-dlp atualizado e o plugin conector do PO Token
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir -U yt-dlp
+    pip install --no-cache-dir -U yt-dlp bgutil-ytdlp-pot-provider
 
-# Copia o restante do seu código (server.py, index.html, etc.)
 COPY . .
 
-# Inicia o Uvicorn apontando para server:app com 1 worker (economiza RAM) e timeout alto
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --timeout-keep-alive 300"]
+# Inicia o servidor de PO Token em segundo plano e o Uvicorn na porta do Render
+CMD ["sh", "-c", "node /opt/bgutil-pot/server/build/main.js & uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --timeout-keep-alive 300"]
