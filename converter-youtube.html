@@ -584,7 +584,7 @@
         © 2026 by: Thiago Sena. Todos os direitos reservados.
     </footer>
 
-        <script>
+              <script>
         const btnMobile = document.getElementById('btnMobile');
         const menuNavegacao = document.getElementById('menuNavegacao');
         if (btnMobile && menuNavegacao) {
@@ -610,75 +610,92 @@
             }
         });
 
+        function renderizarBarraProgresso(porcentagem, mensagem, cor = "#ef4444") {
+            if (!avisoBox) return;
+            avisoBox.classList.add('visivel');
+            avisoBox.innerHTML = `
+                <div style="margin-bottom: 8px; display: flex; justify-content: space-between; font-size: 0.9rem;">
+                    <span>${mensagem}</span>
+                    <strong>${porcentagem}%</strong>
+                </div>
+                <div style="width: 100%; height: 10px; background: rgba(255,255,255,0.12); border-radius: 6px; overflow: hidden;">
+                    <div style="width: ${porcentagem}%; height: 100%; background: ${cor}; transition: width 0.35s ease;"></div>
+                </div>
+            `;
+        }
+
         formYoutube.addEventListener('submit', async (e) => {
             e.preventDefault();
 
             const url = urlYoutube.value.trim();
             if (!url) return;
 
-            // Captura a qualidade selecionada (128, 192 ou 320), padrão 192
             const radioQualidade = document.querySelector('input[type="radio"]:checked');
             const qualidade = radioQualidade ? radioQualidade.value : "192";
 
             const btnSubmit = formYoutube.querySelector('button[type="submit"]');
             const textoOriginalBotao = btnSubmit ? btnSubmit.innerHTML : "Buscar e Converter Áudio";
 
-            // Feedback visual de carregamento
             if (btnSubmit) {
                 btnSubmit.disabled = true;
-                btnSubmit.innerHTML = "Baixando e convertendo... Aguarde";
+                btnSubmit.innerHTML = "Convertendo... Aguarde";
             }
-            if (avisoBox) {
-                avisoBox.classList.add('visivel');
-                avisoBox.innerHTML = "<strong>Processando no servidor...</strong> Extraindo áudio em MP3 (" + qualidade + " kbps). Isso pode levar alguns segundos.";
-            }
+
+            renderizarBarraProgresso(2, "Iniciando tarefa no servidor...");
 
             try {
-                // Caminho relativo: funciona perfeitamente no Render e localmente
-                const response = await fetch("/converter-mp3", {
+                // 1. Inicia a conversão em segundo plano
+                const initRes = await fetch("/iniciar-conversao", {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        url: url,
-                        qualidade: qualidade
-                    })
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ url, qualidade })
                 });
 
-                if (!response.ok) {
-                    let erroDetalhe = "Erro ao processar o vídeo no servidor.";
-                    try {
-                        const errJson = await response.json();
-                        if (errJson.detail) erroDetalhe = errJson.detail;
-                    } catch (_) {}
-                    throw new Error(erroDetalhe);
+                if (!initRes.ok) {
+                    throw new Error("Não foi possível iniciar a conversão.");
                 }
 
-                // Obtém o nome do arquivo enviado pelo backend
-                const disposition = response.headers.get("Content-Disposition");
-                let nomeArquivo = `audio (${qualidade}kbps).mp3`;
-                if (disposition && disposition.includes("filename=")) {
-                    const match = disposition.match(/filename="?([^"]+)"?/);
-                    if (match && match[1]) nomeArquivo = match[1];
-                }
+                const { job_id } = await initRes.json();
 
-                // Dispara o download do MP3 no navegador
-                const blob = await response.blob();
-                const downloadUrl = window.URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.href = downloadUrl;
-                link.download = nomeArquivo;
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                window.URL.revokeObjectURL(downloadUrl);
+                // 2. Consulta o progresso real a cada 1 segundo
+                await new Promise((resolve, reject) => {
+                    const intervalo = setInterval(async () => {
+                        try {
+                            const progRes = await fetch(`/progresso/${job_id}`);
+                            if (!progRes.ok) {
+                                clearInterval(intervalo);
+                                reject(new Error("Perda de conexão ao consultar progresso."));
+                                return;
+                            }
 
-                if (avisoBox) {
-                    avisoBox.innerHTML = "<strong>Concluído!</strong> O download do arquivo MP3 foi iniciado.";
-                }
+                            const dados = await progRes.json();
+
+                            if (dados.erro) {
+                                clearInterval(intervalo);
+                                reject(new Error(dados.status));
+                                return;
+                            }
+
+                            renderizarBarraProgresso(dados.progresso, dados.status);
+
+                            if (dados.concluido) {
+                                clearInterval(intervalo);
+                                resolve();
+                            }
+                        } catch (err) {
+                            clearInterval(intervalo);
+                            reject(err);
+                        }
+                    }, 1000);
+                });
+
+                // 3. Dispara o download do arquivo MP3 pronto
+                renderizarBarraProgresso(100, "Concluído! Baixando arquivo MP3...", "#22c55e");
+                window.location.href = `/baixar/${job_id}`;
+
             } catch (erro) {
                 if (avisoBox) {
+                    avisoBox.classList.add('visivel');
                     avisoBox.innerHTML = `<strong>Erro:</strong> ${erro.message}`;
                 }
             } finally {
@@ -689,6 +706,7 @@
             }
         });
     </script>
+                  
 
 
 </body>
