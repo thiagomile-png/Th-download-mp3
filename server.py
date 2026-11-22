@@ -51,17 +51,12 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
     caminho_saida = f"{TEMP_DIR}/{id_unico}.%(ext)s"
 
     opcoes_ytdlp = {
-        'format': 'bestaudio/best',
+        'format': 'ba/b',
         'outtmpl': caminho_saida,
         'noplaylist': True,
         'buffersize': 1024 * 16,
-        'quiet': True,
-        'no_warnings': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['tv', 'web_creator', 'mweb', 'default'],
-            }
-        },
+        'quiet': False,
+        'verbose': False,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -73,8 +68,6 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
     if cookie_path:
         opcoes_ytdlp['cookiefile'] = cookie_path
         print(f"[INFO] Usando cookies de: {cookie_path}")
-    else:
-        print("[AVISO] Nenhum arquivo cookies.txt encontrado!")
 
     try:
         with yt_dlp.YoutubeDL(opcoes_ytdlp) as ydl:
@@ -98,5 +91,4 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
         remover_arquivos_por_id(id_unico)
         raise HTTPException(status_code=400, detail=str(e))
 
-# Entrega seu site completo (index.html, conversor, contato)
 app.mount("/", StaticFiles(directory=".", html=True), name="site")
