@@ -22,8 +22,10 @@ app.add_middleware(
 TEMP_DIR = "/tmp/downloads_temp"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# Armazena o progresso de cada conversão em andamento
 tarefas = {}
+
+class InfoRequest(BaseModel):
+    url: str
 
 class ConvertRequest(BaseModel):
     url: str
@@ -48,6 +50,36 @@ def obter_cookiefile_gravavel() -> str | None:
         return destino
     return None
 
+@app.post("/info")
+async def obter_info_video(dados: InfoRequest):
+    opcoes_info = {
+        'quiet': True,
+        'no_warnings': True,
+        'noplaylist': True,
+        'skip_download': True,
+    }
+
+    cookie_path = obter_cookiefile_gravavel()
+    if cookie_path:
+        opcoes_info['cookiefile'] = cookie_path
+
+    try:
+        with yt_dlp.YoutubeDL(opcoes_info) as ydl:
+            info = ydl.extract_info(dados.url, download=False)
+            duracao_seg = info.get("duration") or 0
+            minutos, segundos = divmod(int(duracao_seg), 60)
+            horas, minutos = divmod(minutos, 60)
+            duracao_fmt = f"{horas}:{minutos:02d}:{segundos:02d}" if horas > 0 else f"{minutos}:{segundos:02d}"
+
+            return {
+                "titulo": info.get("title", "Vídeo do YouTube"),
+                "thumbnail": info.get("thumbnail", ""),
+                "canal": info.get("uploader", ""),
+                "duracao": duracao_fmt if duracao_seg else ""
+            }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
     caminho_saida = f"{TEMP_DIR}/{id_unico}.%(ext)s"
 
@@ -56,7 +88,6 @@ def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
             total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
             baixado = d.get('downloaded_bytes', 0)
             if total > 0:
-                # O download representa de 5% a 80% do processo total
                 pct = int((baixado / total) * 75) + 5
                 tarefas[id_unico]["progresso"] = min(pct, 80)
                 tarefas[id_unico]["status"] = f"Baixando áudio do YouTube... ({int((baixado / total) * 100)}%)"
