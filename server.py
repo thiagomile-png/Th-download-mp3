@@ -51,7 +51,7 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
     caminho_saida = f"{TEMP_DIR}/{id_unico}.%(ext)s"
 
     opcoes_ytdlp = {
-        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'format': 'bestaudio/best',
         'outtmpl': caminho_saida,
         'noplaylist': True,
         'buffersize': 1024 * 16,
@@ -59,7 +59,7 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
         'no_warnings': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web'],
+                'player_client': ['tv', 'web_creator', 'mweb', 'default'],
             }
         },
         'postprocessors': [{
@@ -98,4 +98,5 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
         remover_arquivos_por_id(id_unico)
         raise HTTPException(status_code=400, detail=str(e))
 
+# Entrega seu site completo (index.html, conversor, contato)
 app.mount("/", StaticFiles(directory=".", html=True), name="site")
