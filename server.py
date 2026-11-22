@@ -1,4 +1,5 @@
 import os
+import shutil
 import uuid
 import glob
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -30,6 +31,19 @@ def remover_arquivos_por_id(id_unico: str):
         if os.path.exists(arquivo):
             os.remove(arquivo)
 
+def obter_cookiefile_gravavel() -> str | None:
+    origem = None
+    if os.path.exists("/etc/secrets/cookies.txt"):
+        origem = "/etc/secrets/cookies.txt"
+    elif os.path.exists("cookies.txt"):
+        origem = "cookies.txt"
+
+    if origem:
+        destino = "/tmp/cookies_yt.txt"
+        shutil.copyfile(origem, destino)
+        return destino
+    return None
+
 @app.post("/converter-mp3")
 async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks):
     qualidade = dados.qualidade if dados.qualidade in ["128", "192", "320"] else "192"
@@ -40,15 +54,27 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': caminho_saida,
         'noplaylist': True,
-        'buffersize': 1024 * 16,  # Reduz consumo de RAM na leitura
+        'buffersize': 1024 * 16,
         'quiet': True,
         'no_warnings': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+            }
+        },
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': qualidade,
         }],
     }
+
+    cookie_path = obter_cookiefile_gravavel()
+    if cookie_path:
+        opcoes_ytdlp['cookiefile'] = cookie_path
+        print(f"[INFO] Usando cookies de: {cookie_path}")
+    else:
+        print("[AVISO] Nenhum arquivo cookies.txt encontrado!")
 
     try:
         with yt_dlp.YoutubeDL(opcoes_ytdlp) as ydl:
@@ -57,7 +83,7 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
             titulo_limpo = "".join(c for c in titulo if c.isalnum() or c in " -_").strip() or "audio"
 
         arquivo_final = f"{TEMP_DIR}/{id_unico}.mp3"
-        
+
         if not os.path.exists(arquivo_final):
             raise Exception("Falha na conversão do áudio pelo FFmpeg.")
 
@@ -72,5 +98,4 @@ async def converter_mp3(dados: ConvertRequest, background_tasks: BackgroundTasks
         remover_arquivos_por_id(id_unico)
         raise HTTPException(status_code=400, detail=str(e))
 
-# Entrega seu site completo (index.html, conversor, contato)
 app.mount("/", StaticFiles(directory=".", html=True), name="site")
