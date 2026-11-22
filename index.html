@@ -689,154 +689,194 @@
     <footer class="rodape">
         © 2026 by: Thiago Sena. Todos os direitos reservados.
     </footer>
-
     <script>
-        // Menu Mobile Toggle
         const btnMobile = document.getElementById('btnMobile');
         const menuNavegacao = document.getElementById('menuNavegacao');
-
-        btnMobile.addEventListener('click', () => {
-            const aberto = menuNavegacao.classList.toggle('aberto');
-            btnMobile.setAttribute('aria-expanded', aberto);
-        });
-
-        // Lógica do Conversor
-        const inputVideo = document.getElementById('inputVideo');
-        const dropZone = document.getElementById('dropZone');
-        const nomeArquivo = document.getElementById('nomeArquivo');
-        const btnConverter = document.getElementById('btnConverter');
-        const areaStatus = document.getElementById('areaStatus');
-        const textoStatus = document.getElementById('textoStatus');
-        const barraProgresso = document.getElementById('barraProgresso');
-        const areaResultado = document.getElementById('areaResultado');
-        const btnBaixar = document.getElementById('btnBaixar');
-        const btnNovo = document.getElementById('btnNovo');
-
-        let arquivoAtual = null;
-
-        inputVideo.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                selecionarArquivo(e.target.files[0]);
-            }
-        });
-
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.classList.add('dragover');
-        });
-
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('dragover');
-        });
-
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('dragover');
-            if (e.dataTransfer.files.length > 0) {
-                selecionarArquivo(e.dataTransfer.files[0]);
-            }
-        });
-
-        function selecionarArquivo(file) {
-            arquivoAtual = file;
-            nomeArquivo.textContent = file.name;
-            btnConverter.disabled = false;
-            areaResultado.style.display = 'none';
-            areaStatus.style.display = 'none';
+        if (btnMobile && menuNavegacao) {
+            btnMobile.addEventListener('click', () => {
+                const aberto = menuNavegacao.classList.toggle('aberto');
+                btnMobile.setAttribute('aria-expanded', aberto);
+            });
         }
+    </script>
 
-        btnConverter.addEventListener('click', async () => {
-            if (!arquivoAtual) return;
+    <script>
+        const btnColar = document.getElementById('btnColar');
+        const urlYoutube = document.getElementById('urlYoutube');
+        const formYoutube = document.getElementById('formYoutube');
+        const avisoBox = document.getElementById('avisoBox');
 
-            btnConverter.disabled = true;
-            areaStatus.style.display = 'block';
-            areaResultado.style.display = 'none';
-            barraProgresso.style.width = '10%';
-            textoStatus.textContent = 'Extraindo faixa de áudio...';
+        // Cria o contêiner de pré-visualização logo abaixo do campo de URL
+        const previewContainer = document.createElement('div');
+        previewContainer.id = 'videoPreview';
+        previewContainer.style.display = 'none';
+        previewContainer.style.marginTop = '12px';
+        previewContainer.style.marginBottom = '16px';
+        previewContainer.style.padding = '12px';
+        previewContainer.style.borderRadius = '10px';
+        previewContainer.style.background = 'rgba(255, 255, 255, 0.06)';
+        previewContainer.style.border = '1px solid rgba(255, 255, 255, 0.12)';
+        urlYoutube.parentElement.insertAdjacentElement('afterend', previewContainer);
+
+        let ultimaUrlConsultada = "";
+        let timerBusca = null;
+
+        async function carregarPrevia(url) {
+            const urlLimpa = url.trim();
+            if (!urlLimpa || (!urlLimpa.includes("://youtube.com") && !urlLimpa.includes("youtu.be/"))) {
+                previewContainer.style.display = 'none';
+                ultimaUrlConsultada = "";
+                return;
+            }
+
+            if (urlLimpa === ultimaUrlConsultada) return;
+            ultimaUrlConsultada = urlLimpa;
+
+            previewContainer.style.display = 'block';
+            previewContainer.innerHTML = `<span style="font-size: 0.85rem; opacity: 0.8;">Buscando informações do vídeo...</span>`;
 
             try {
-                const bitrate = parseInt(document.querySelector('input[name="qualidade"]:checked').value, 10);
-                const arrayBuffer = await arquivoAtual.arrayBuffer();
-                
-                barraProgresso.style.width = '30%';
-                textoStatus.textContent = 'Decodificando áudio no navegador...';
+                const res = await fetch("/info", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ url: urlLimpa })
+                });
 
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                if (!res.ok) throw new Error("Não foi possível carregar a prévia.");
 
-                barraProgresso.style.width = '50%';
-                textoStatus.textContent = 'Codificando para MP3 (' + bitrate + ' kbps)...';
+                const dados = await res.json();
+                previewContainer.innerHTML = `
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        ${dados.thumbnail ? `<img src="${dados.thumbnail}" alt="Capa do vídeo" style="width: 110px; height: 62px; object-fit: cover; border-radius: 6px; flex-shrink: 0;">` : ''}
+                        <div style="overflow: hidden;">
+                            <div style="font-weight: 600; font-size: 0.92rem; line-height: 1.3; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                                ${dados.titulo}
+                            </div>
+                            <div style="font-size: 0.8rem; opacity: 0.75;">
+                                ${dados.canal ? dados.canal : ''} ${dados.duracao ? `• ${dados.duracao}` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (e) {
+                previewContainer.style.display = 'none';
+            }
+        }
 
-                setTimeout(() => {
-                    const mp3Blob = encodeAudioBufferToMp3(audioBuffer, bitrate);
-                    const url = URL.createObjectURL(mp3Blob);
-                    const nomeBase = arquivoAtual.name.replace(/\.[^/.]+$/, "");
+        // Dispara a prévia ao clicar em Colar
+        btnColar.addEventListener('click', async () => {
+            try {
+                const texto = await navigator.clipboard.readText();
+                urlYoutube.value = texto;
+                carregarPrevia(texto);
+            } catch (e) {
+                urlYoutube.focus();
+            }
+        });
 
-                    btnBaixar.href = url;
-                    btnBaixar.download = `${nomeBase}.mp3`;
+        // Dispara a prévia quando o usuário cola com Ctrl+V ou digita o link
+        urlYoutube.addEventListener('input', () => {
+            clearTimeout(timerBusca);
+            timerBusca = setTimeout(() => {
+                carregarPrevia(urlYoutube.value);
+            }, 600);
+        });
 
-                    barraProgresso.style.width = '100%';
-                    textoStatus.textContent = 'Conversão concluída com sucesso!';
-                    areaResultado.style.display = 'block';
-                }, 100);
+        function renderizarBarraProgresso(porcentagem, mensagem, cor = "#ef4444") {
+            if (!avisoBox) return;
+            avisoBox.classList.add('visivel');
+            avisoBox.innerHTML = `
+                <div style="margin-bottom: 8px; display: flex; justify-content: space-between; font-size: 0.9rem;">
+                    <span>${mensagem}</span>
+                    <strong>${porcentagem}%</strong>
+                </div>
+                <div style="width: 100%; height: 10px; background: rgba(255,255,255,0.12); border-radius: 6px; overflow: hidden;">
+                    <div style="width: ${porcentagem}%; height: 100%; background: ${cor}; transition: width 0.35s ease;"></div>
+                </div>
+            `;
+        }
+
+        formYoutube.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const url = urlYoutube.value.trim();
+            if (!url) return;
+
+            const radioQualidade = document.querySelector('input[type="radio"]:checked');
+            const qualidade = radioQualidade ? radioQualidade.value : "192";
+
+            const btnSubmit = formYoutube.querySelector('button[type="submit"]');
+            const textoOriginalBotao = btnSubmit ? btnSubmit.innerHTML : "Buscar e Converter Áudio";
+
+            if (btnSubmit) {
+                btnSubmit.disabled = true;
+                btnSubmit.innerHTML = "Convertendo... Aguarde";
+            }
+
+            renderizarBarraProgresso(2, "Iniciando tarefa no servidor...");
+
+            try {
+                const initRes = await fetch("/iniciar-conversao", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ url, qualidade })
+                });
+
+                if (!initRes.ok) {
+                    throw new Error("Não foi possível iniciar a conversão.");
+                }
+
+                const { job_id } = await initRes.json();
+
+                await new Promise((resolve, reject) => {
+                    const intervalo = setInterval(async () => {
+                        try {
+                            const progRes = await fetch(`/progresso/${job_id}`);
+                            if (!progRes.ok) {
+                                clearInterval(intervalo);
+                                reject(new Error("Perda de conexão ao consultar progresso."));
+                                return;
+                            }
+
+                            const dados = await progRes.json();
+
+                            if (dados.erro) {
+                                clearInterval(intervalo);
+                                reject(new Error(dados.status));
+                                return;
+                            }
+
+                            renderizarBarraProgresso(dados.progresso, dados.status);
+
+                            if (dados.concluido) {
+                                clearInterval(intervalo);
+                                resolve();
+                            }
+                        } catch (err) {
+                            clearInterval(intervalo);
+                            reject(err);
+                        }
+                    }, 1000);
+                });
+
+                renderizarBarraProgresso(100, "Concluído! Baixando arquivo MP3...", "#22c55e");
+                window.location.href = `/baixar/${job_id}`;
 
             } catch (erro) {
-                console.error(erro);
-                textoStatus.textContent = 'Erro ao converter o arquivo. Verifique se o formato é suportado.';
-                btnConverter.disabled = false;
-            }
-        });
-
-        function encodeAudioBufferToMp3(audioBuffer, bitrate) {
-            const channels = Math.min(audioBuffer.numberOfChannels, 2);
-            const sampleRate = audioBuffer.sampleRate;
-            const mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, bitrate);
-            const mp3Data = [];
-
-            const leftFloat = audioBuffer.getChannelData(0);
-            const rightFloat = channels > 1 ? audioBuffer.getChannelData(1) : leftFloat;
-
-            const sampleBlockSize = 1152;
-            const leftInt16 = floatTo16BitPCM(leftFloat);
-            const rightInt16 = channels > 1 ? floatTo16BitPCM(rightFloat) : leftInt16;
-
-            for (let i = 0; i < leftInt16.length; i += sampleBlockSize) {
-                const leftChunk = leftInt16.subarray(i, i + sampleBlockSize);
-                const rightChunk = rightInt16.subarray(i, i + sampleBlockSize);
-                const mp3buf = channels === 1
-                    ? mp3encoder.encodeBuffer(leftChunk)
-                    : mp3encoder.encodeBuffer(leftChunk, rightChunk);
-                if (mp3buf.length > 0) {
-                    mp3Data.push(mp3buf);
+                if (avisoBox) {
+                    avisoBox.classList.add('visivel');
+                    avisoBox.innerHTML = `<strong>Erro:</strong> ${erro.message}`;
+                }
+            } finally {
+                if (btnSubmit) {
+                    btnSubmit.disabled = false;
+                    btnSubmit.innerHTML = textoOriginalBotao;
                 }
             }
-
-            const mp3buf = mp3encoder.flush();
-            if (mp3buf.length > 0) {
-                mp3Data.push(mp3buf);
-            }
-
-            return new Blob(mp3Data, { type: 'audio/mp3' });
-        }
-
-        function floatTo16BitPCM(input) {
-            const output = new Int16Array(input.length);
-            for (let i = 0; i < input.length; i++) {
-                const s = Math.max(-1, Math.min(1, input[i]));
-                output[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-            }
-            return output;
-        }
-
-        btnNovo.addEventListener('click', () => {
-            arquivoAtual = null;
-            inputVideo.value = '';
-            nomeArquivo.textContent = 'Nenhum arquivo selecionado';
-            btnConverter.disabled = true;
-            areaStatus.style.display = 'none';
-            areaResultado.style.display = 'none';
-            barraProgresso.style.width = '0%';
         });
     </script>
+
+
+
 </body>
 </html>
