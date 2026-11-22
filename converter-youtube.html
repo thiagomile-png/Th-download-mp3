@@ -583,7 +583,6 @@
     <footer class="rodape">
         © 2026 by: Thiago Sena. Todos os direitos reservados.
     </footer>
-
               <script>
         const btnMobile = document.getElementById('btnMobile');
         const menuNavegacao = document.getElementById('menuNavegacao');
@@ -601,13 +600,80 @@
         const formYoutube = document.getElementById('formYoutube');
         const avisoBox = document.getElementById('avisoBox');
 
+        // Cria o contêiner de pré-visualização logo abaixo do campo de URL
+        const previewContainer = document.createElement('div');
+        previewContainer.id = 'videoPreview';
+        previewContainer.style.display = 'none';
+        previewContainer.style.marginTop = '12px';
+        previewContainer.style.marginBottom = '16px';
+        previewContainer.style.padding = '12px';
+        previewContainer.style.borderRadius = '10px';
+        previewContainer.style.background = 'rgba(255, 255, 255, 0.06)';
+        previewContainer.style.border = '1px solid rgba(255, 255, 255, 0.12)';
+        urlYoutube.parentElement.insertAdjacentElement('afterend', previewContainer);
+
+        let ultimaUrlConsultada = "";
+        let timerBusca = null;
+
+        async function carregarPrevia(url) {
+            const urlLimpa = url.trim();
+            if (!urlLimpa || (!urlLimpa.includes("://youtube.com") && !urlLimpa.includes("youtu.be/"))) {
+                previewContainer.style.display = 'none';
+                ultimaUrlConsultada = "";
+                return;
+            }
+
+            if (urlLimpa === ultimaUrlConsultada) return;
+            ultimaUrlConsultada = urlLimpa;
+
+            previewContainer.style.display = 'block';
+            previewContainer.innerHTML = `<span style="font-size: 0.85rem; opacity: 0.8;">Buscando informações do vídeo...</span>`;
+
+            try {
+                const res = await fetch("/info", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ url: urlLimpa })
+                });
+
+                if (!res.ok) throw new Error("Não foi possível carregar a prévia.");
+
+                const dados = await res.json();
+                previewContainer.innerHTML = `
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        ${dados.thumbnail ? `<img src="${dados.thumbnail}" alt="Capa do vídeo" style="width: 110px; height: 62px; object-fit: cover; border-radius: 6px; flex-shrink: 0;">` : ''}
+                        <div style="overflow: hidden;">
+                            <div style="font-weight: 600; font-size: 0.92rem; line-height: 1.3; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                                ${dados.titulo}
+                            </div>
+                            <div style="font-size: 0.8rem; opacity: 0.75;">
+                                ${dados.canal ? dados.canal : ''} ${dados.duracao ? `• ${dados.duracao}` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (e) {
+                previewContainer.style.display = 'none';
+            }
+        }
+
+        // Dispara a prévia ao clicar em Colar
         btnColar.addEventListener('click', async () => {
             try {
                 const texto = await navigator.clipboard.readText();
                 urlYoutube.value = texto;
+                carregarPrevia(texto);
             } catch (e) {
                 urlYoutube.focus();
             }
+        });
+
+        // Dispara a prévia quando o usuário cola com Ctrl+V ou digita o link
+        urlYoutube.addEventListener('input', () => {
+            clearTimeout(timerBusca);
+            timerBusca = setTimeout(() => {
+                carregarPrevia(urlYoutube.value);
+            }, 600);
         });
 
         function renderizarBarraProgresso(porcentagem, mensagem, cor = "#ef4444") {
@@ -644,7 +710,6 @@
             renderizarBarraProgresso(2, "Iniciando tarefa no servidor...");
 
             try {
-                // 1. Inicia a conversão em segundo plano
                 const initRes = await fetch("/iniciar-conversao", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -657,7 +722,6 @@
 
                 const { job_id } = await initRes.json();
 
-                // 2. Consulta o progresso real a cada 1 segundo
                 await new Promise((resolve, reject) => {
                     const intervalo = setInterval(async () => {
                         try {
@@ -689,7 +753,6 @@
                     }, 1000);
                 });
 
-                // 3. Dispara o download do arquivo MP3 pronto
                 renderizarBarraProgresso(100, "Concluído! Baixando arquivo MP3...", "#22c55e");
                 window.location.href = `/baixar/${job_id}`;
 
@@ -706,8 +769,6 @@
             }
         });
     </script>
-                  
-
-
+  
 </body>
 </html>
