@@ -585,32 +585,86 @@
     </footer>
 
     <script>
-        const btnMobile = document.getElementById('btnMobile');
-        const menuNavegacao = document.getElementById('menuNavegacao');
-        btnMobile.addEventListener('click', () => {
-            const aberto = menuNavegacao.classList.toggle('aberto');
-            btnMobile.setAttribute('aria-expanded', aberto);
-        });
-    </script>
-    <script>
-        const btnColar = document.getElementById('btnColar');
-        const urlYoutube = document.getElementById('urlYoutube');
-        const formYoutube = document.getElementById('formYoutube');
-        const avisoBox = document.getElementById('avisoBox');
+    const btnColar = document.getElementById('btnColar');
+    const urlYoutube = document.getElementById('urlYoutube');
+    const formYoutube = document.getElementById('formYoutube');
+    const avisoBox = document.getElementById('avisoBox');
+    const btnSubmit = formYoutube.querySelector('button[type="submit"]');
 
-        btnColar.addEventListener('click', async () => {
-            try {
-                const texto = await navigator.clipboard.readText();
-                urlYoutube.value = texto;
-            } catch (e) {
-                urlYoutube.focus();
+    // Rota exata definida no Payton.py (/converter-mp3)
+    const API_URL = 'https://onrender.com';
+
+    btnColar.addEventListener('click', async () => {
+        try {
+            const texto = await navigator.clipboard.readText();
+            urlYoutube.value = texto;
+        } catch (e) {
+            urlYoutube.focus();
+        }
+    });
+
+    formYoutube.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const url = urlYoutube.value.trim();
+        if (!url) {
+            alert('Por favor, cole um link válido.');
+            return;
+        }
+
+        const radioSelecionado = formYoutube.querySelector('input[type="radio"]:checked');
+        const qualidade = radioSelecionado ? radioSelecionado.value : '192';
+
+        const textoOriginalBtn = btnSubmit.textContent;
+        btnSubmit.disabled = true;
+        btnSubmit.textContent = 'Convertendo... (pode levar até 50s na primeira vez)';
+        avisoBox.classList.remove('visivel');
+
+        try {
+            const resposta = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, qualidade })
+            });
+
+            if (!resposta.ok) {
+                const erroDados = await resposta.json().catch(() => ({}));
+                // O FastAPI retorna a mensagem no campo "detail"
+                throw new Error(erroDados.detail || `Erro HTTP ${resposta.status} no servidor.`);
             }
-        });
 
-        formYoutube.addEventListener('submit', (e) => {
-            e.preventDefault();
+            // Captura o nome limpo do vídeo enviado no Content-Disposition (UTF-8)
+            const disposition = resposta.headers.get('Content-Disposition');
+            let nomeArquivo = 'audio_convertido.mp3';
+            if (disposition) {
+                const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+                const normalMatch = disposition.match(/filename="?([^";]+)"?/i);
+                if (utf8Match && utf8Match) {
+                    nomeArquivo = decodeURIComponent(utf8Match);
+                } else if (normalMatch && normalMatch) {
+                    nomeArquivo = normalMatch;
+                }
+            }
+
+            const blob = await resposta.blob();
+            const linkDownload = document.createElement('a');
+            linkDownload.href = window.URL.createObjectURL(blob);
+            linkDownload.download = nomeArquivo;
+            document.body.appendChild(linkDownload);
+            linkDownload.click();
+            linkDownload.remove();
+            window.URL.revokeObjectURL(linkDownload.href);
+
+        } catch (erro) {
+            console.error('Erro detalhado:', erro);
             avisoBox.classList.add('visivel');
-        });
-    </script>
+            alert('Falha na operação: ' + erro.message);
+        } finally {
+            btnSubmit.disabled = false;
+            btnSubmit.textContent = textoOriginalBtn;
+        }
+    });
+</script>
+
 </body>
 </html>
