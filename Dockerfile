@@ -17,8 +17,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir -U yt-dlp
 
-# Copia o restante do seu código (main.py, index.html, etc.)
+# Copia o restante do seu código (server.py, index.html, etc.)
 COPY . .
 
-# Inicia o Uvicorn com apenas 1 worker (economiza RAM) e timeout alto
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --timeout-keep-alive 300"]
+# Inicia o Uvicorn apontando para server:app com 1 worker (economiza RAM) e timeout alto
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --timeout-keep-alive 300"]
