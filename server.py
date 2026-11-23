@@ -1,4 +1,5 @@
 import os
+import random
 import shutil
 import uuid
 import glob
@@ -21,18 +22,18 @@ app.add_middleware(
 
 TEMP_DIR = "/tmp/downloads_temp"
 os.makedirs(TEMP_DIR, exist_ok=True)
-
-# Limite máximo de duração em segundos (7200s = 2 horas) para proteger a RAM do Render
 DURACAO_MAXIMA_SEGUNDOS = 7200
-
 tarefas = {}
+
 
 class InfoRequest(BaseModel):
     url: str
 
+
 class ConvertRequest(BaseModel):
     url: str
     qualidade: str = "192"
+
 
 def remover_arquivos_por_id(id_unico: str):
     for arquivo in glob.glob(f"{TEMP_DIR}/{id_unico}*"):
@@ -40,7 +41,8 @@ def remover_arquivos_por_id(id_unico: str):
             os.remove(arquivo)
     tarefas.pop(id_unico, None)
 
-def obter_cookiefile_gravavel() -> str | None:
+
+def obter_cookiefile_gravavel():
     origem = None
     if os.path.exists("/etc/secrets/cookies.txt"):
         origem = "/etc/secrets/cookies.txt"
@@ -53,66 +55,77 @@ def obter_cookiefile_gravavel() -> str | None:
         return destino
     return None
 
-def criar_opcoes_base(usar_cookies: bool = True, clientes: list | None = None) -> dict:
+
+def obter_lista_proxies():
+    proxies = []
+    raw_list = os.environ.get("PROXY_LIST", "").strip()
+    if raw_list:
+        for item in raw_list.replace("\n", ",").split(","):
+            p = item.strip().rstrip("/")
+            if p:
+                proxies.append(p)
+
+    single_proxy = os.environ.get("PROXY_URL", "").strip().rstrip("/")
+    if single_proxy and single_proxy not in proxies:
+        proxies.append(single_proxy)
+
+    if proxies:
+        random.shuffle(proxies)
+    return proxies
+
+
+def criar_opcoes_base(usar_cookies=True, clientes=None, proxy_url=None):
     opcoes = {
         'noplaylist': True,
         'buffersize': 1024 * 16,
         'http_chunk_size': 10485760,
-        'retries': 5,
-        'fragment_retries': 5,
-        'socket_timeout': 25,
+        'retries': 3,
+        'fragment_retries': 3,
+        'socket_timeout': 20,
         'quiet': True,
         'no_warnings': True,
     }
-
     if clientes:
-        opcoes['extractor_args'] = {
-            'youtube': {
-                'player_client': clientes,
-            }
-        }
-
+        opcoes['extractor_args'] = {'youtube': {'player_client': clientes}}
     if usar_cookies:
         cookie_path = obter_cookiefile_gravavel()
         if cookie_path:
             opcoes['cookiefile'] = cookie_path
-
-    proxy_url = os.environ.get("PROXY_URL", "").strip()
     if proxy_url:
         opcoes['proxy'] = proxy_url
-
     return opcoes
 
-def traduzir_erro_youtube(erro_str: str) -> str:
+
+def traduzir_erro_youtube(erro_str):
     msg = erro_str.lower()
     if "sign in to confirm" in msg or "bot" in msg:
-        return "O YouTube bloqueou temporariamente a conexão do servidor. Tente novamente em instantes ou atualize os cookies."
+        return "O YouTube bloqueou temporariamente a conexão dos proxies. Tente novamente em instantes."
     if "failed to extract any player response" in msg or "403" in msg:
-        return "O YouTube recusou o acesso a este vídeo (bloqueio de IP/região ou sessão expirada)."
+        return "O YouTube recusou o acesso a este vídeo (proxies bloqueados ou vídeo restrito)."
     if "video unavailable" in msg or "private video" in msg:
         return "Este vídeo está privado, indisponível ou foi removido."
     if "ultrapassa o limite" in msg or "transmissões ao vivo" in msg:
         return erro_str
     return f"Não foi possível processar este vídeo: {erro_str}"
-
 @app.post("/info")
 async def obter_info_video(dados: InfoRequest):
-    # Tentativa 1: Com cookies e clientes web
-    opcoes_1 = criar_opcoes_base(usar_cookies=True, clientes=['tv_embedded', 'web_safari', 'mweb'])
-    opcoes_1['skip_download'] = True
+    proxies = obter_lista_proxies()
+    lista_testes = proxies[:3] if proxies else [None]
+    info = None
+    ultimo_erro = None
 
-    try:
-        with yt_dlp.YoutubeDL(opcoes_1) as ydl:
-            info = ydl.extract_info(dados.url, download=False)
-    except Exception:
-        # Tentativa 2 (Fallback): Sem cookies e com clientes móveis
-        opcoes_2 = criar_opcoes_base(usar_cookies=False, clientes=['ios', 'android'])
-        opcoes_2['skip_download'] = True
+    for proxy in lista_testes:
+        opcoes = criar_opcoes_base(usar_cookies=True, clientes=None, proxy_url=proxy)
+        opcoes['skip_download'] = True
         try:
-            with yt_dlp.YoutubeDL(opcoes_2) as ydl:
+            with yt_dlp.YoutubeDL(opcoes) as ydl:
                 info = ydl.extract_info(dados.url, download=False)
+                break
         except Exception as e:
-            raise HTTPException(status_code=400, detail=traduzir_erro_youtube(str(e)))
+            ultimo_erro = e
+
+    if not info:
+        raise HTTPException(status_code=400, detail=traduzir_erro_youtube(str(ultimo_erro or "Erro ao ler vídeo.")))
 
     duracao_seg = info.get("duration") or 0
     minutos, segundos = divmod(int(duracao_seg), 60)
@@ -126,6 +139,7 @@ async def obter_info_video(dados: InfoRequest):
         "duracao": duracao_fmt if duracao_seg else ""
     }
 
+
 def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
     caminho_saida = f"{TEMP_DIR}/{id_unico}.%(ext)s"
 
@@ -136,13 +150,13 @@ def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
             if total > 0:
                 pct = int((baixado / total) * 75) + 5
                 tarefas[id_unico]["progresso"] = min(pct, 80)
-                tarefas[id_unico]["status"] = f"Baixando áudio do YouTube... ({int((baixado / total) * 100)}%)"
+                tarefas[id_unico]["status"] = f"Baixando áudio... ({int((baixado / total) * 100)}%)"
         elif d['status'] == 'finished':
             tarefas[id_unico]["progresso"] = 85
             tarefas[id_unico]["status"] = "Convertendo para MP3 com FFmpeg..."
 
-    def montar_opcoes_download(usar_cookies: bool, clientes: list) -> dict:
-        opcoes = criar_opcoes_base(usar_cookies=usar_cookies, clientes=clientes)
+    def montar_opcoes_download(usar_cookies, clientes, proxy_url):
+        opcoes = criar_opcoes_base(usar_cookies=usar_cookies, clientes=clientes, proxy_url=proxy_url)
         opcoes.update({
             'format': 'bestaudio/best',
             'outtmpl': caminho_saida,
@@ -154,23 +168,27 @@ def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
             }],
         })
         return opcoes
-
     try:
-        tarefas[id_unico]["status"] = "Verificando vídeo no YouTube..."
+        tarefas[id_unico]["status"] = "Conectando ao YouTube..."
         tarefas[id_unico]["progresso"] = 4
 
-        # Define as duas estratégias em ordem: 1ª com cookies, 2ª fallback sem cookies
-        estrategias = [
-            ("Tentativa principal", montar_opcoes_download(True, ['tv_embedded', 'web_safari', 'mweb'])),
-            ("Tentativa alternativa", montar_opcoes_download(False, ['ios', 'android'])),
-        ]
+        proxies = obter_lista_proxies()
+        estrategias = []
+
+        if proxies:
+            for idx, proxy in enumerate(proxies[:5], start=1):
+                estrategias.append((f"Proxy #{idx} (com cookies)", montar_opcoes_download(True, None, proxy)))
+            estrategias.append(("Proxy fallback (sem cookies)", montar_opcoes_download(False, ['tv_embedded', 'mweb'], proxies[-1])))
+        else:
+            estrategias.append(("Direto (com cookies)", montar_opcoes_download(True, None, None)))
+            estrategias.append(("Direto (sem cookies)", montar_opcoes_download(False, ['tv_embedded', 'mweb'], None)))
 
         info_final = None
         ultimo_erro = None
 
         for nome_estrategia, opcoes_atual in estrategias:
             try:
-                print(f"[INFO] Executando {nome_estrategia} para {url}")
+                print(f"[INFO] Tentando {nome_estrategia} para {url}")
                 with yt_dlp.YoutubeDL(opcoes_atual) as ydl:
                     info_previa = ydl.extract_info(url, download=False)
                     duracao = info_previa.get("duration") or 0
@@ -185,11 +203,11 @@ def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
                     tarefas[id_unico]["progresso"] = 5
 
                     info_final = ydl.extract_info(url, download=True)
-                    break  # Sucesso! Sai do loop
+                    print(f"[SUCESSO] Baixado via {nome_estrategia}")
+                    break
             except Exception as err:
                 ultimo_erro = err
                 print(f"[AVISO] {nome_estrategia} falhou: {err}")
-                # Se for erro de regra (duração ou live), não tenta fallback
                 if "ultrapassa o limite" in str(err) or "ao vivo" in str(err):
                     raise err
 
@@ -218,6 +236,7 @@ def executar_download_em_segundo_plano(id_unico: str, url: str, qualidade: str):
             "concluido": False
         }
 
+
 @app.post("/iniciar-conversao")
 async def iniciar_conversao(dados: ConvertRequest, background_tasks: BackgroundTasks):
     qualidade = dados.qualidade if dados.qualidade in ["128", "192", "320"] else "192"
@@ -233,6 +252,7 @@ async def iniciar_conversao(dados: ConvertRequest, background_tasks: BackgroundT
     background_tasks.add_task(executar_download_em_segundo_plano, id_unico, dados.url, qualidade)
     return {"job_id": id_unico}
 
+
 @app.get("/progresso/{job_id}")
 async def consultar_progresso(job_id: str):
     tarefa = tarefas.get(job_id)
@@ -244,6 +264,7 @@ async def consultar_progresso(job_id: str):
         "concluido": tarefa["concluido"],
         "erro": tarefa.get("erro", False)
     }
+
 
 @app.get("/baixar/{job_id}")
 async def baixar_arquivo(job_id: str, background_tasks: BackgroundTasks):
@@ -257,5 +278,6 @@ async def baixar_arquivo(job_id: str, background_tasks: BackgroundTasks):
         media_type="audio/mpeg",
         filename=tarefa["nome_download"]
     )
+
 
 app.mount("/", StaticFiles(directory=".", html=True), name="site")
